@@ -1,1 +1,12 @@
-
+services:
+  - type: web
+    name: stickball-sse
+    env: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: ALLOW_ORIGIN
+        value: "*"
+      # - key: GAME_KEY
+      #   value: "1234"
