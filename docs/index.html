@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <title>StickBall Online (GitHub Pages + SSE)</title>
+  <style>
+    :root{--bg:#070b16;--panel:#0c1630cc;--text:#eaf1ff;--muted:#a7b4d6;--p1:#54d3ff;--p2:#ff6a6a;}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;}
+    #app{position:fixed;inset:0;overflow:hidden;} canvas{display:block;width:100%;height:100%;}
+    #hud{position:fixed;left:0;right:0;top:0;display:none;justify-content:space-between;gap:10px;padding:10px;pointer-events:none;z-index:5;text-shadow:0 2px 12px rgba(0,0,0,.6);}
+    .box{background:rgba(10,18,40,.35);border:1px solid rgba(120,160,255,.22);backdrop-filter:blur(6px);border-radius:14px;padding:8px 10px;font-size:13px;min-width:200px;}
+    .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid rgba(120,160,255,.25);background:rgba(8,14,28,.55);}
+    .dot{width:10px;height:10px;border-radius:50%;}
+    .dot.p1{background:var(--p1);} .dot.p2{background:var(--p2);}
+    .muted{color:var(--muted);font-size:12px;}
+    #menuOverlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%, rgba(80,140,255,.12), rgba(0,0,0,.88));z-index:10;}
+    #menu{width:min(640px,92vw);background:var(--panel);border:1px solid rgba(120,160,255,.25);border-radius:18px;padding:16px;box-shadow:0 24px 80px rgba(0,0,0,.55);}
+    h1{margin:0 0 6px 0;font-size:18px;}
+    .small{font-size:12px;color:var(--muted);line-height:1.35;}
+    .sep{height:1px;background:rgba(120,160,255,.18);margin:12px 0;}
+    button,input{font:inherit;background:rgba(7,12,24,.85);color:var(--text);border:1px solid rgba(120,160,255,.25);border-radius:12px;padding:10px 12px;outline:none;}
+    button{cursor:pointer;} button:hover{border-color:rgba(120,160,255,.6);}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;} .full{grid-column:1/-1;}
+    #menuStatus{min-height:18px;margin-top:10px;font-size:12px;color:#ffd36b;}
+
+    /* Mobile */
+    #mobile{position:fixed;inset:0;z-index:6;pointer-events:none;}
+    #joy{position:absolute;left:18px;bottom:18px;width:140px;height:140px;pointer-events:auto;touch-action:none;}
+    #joyBase{position:absolute;inset:0;border-radius:999px;background:rgba(12,20,48,.35);border:1px solid rgba(120,160,255,.25);backdrop-filter:blur(4px);}
+    #joyStick{position:absolute;left:50%;top:50%;width:58px;height:58px;margin-left:-29px;margin-top:-29px;border-radius:999px;background:rgba(120,160,255,.18);border:1px solid rgba(120,160,255,.35);}
+    #actions{position:absolute;right:18px;bottom:18px;display:grid;grid-template-columns:92px 92px;gap:10px;pointer-events:auto;touch-action:none;}
+    .actBtn{width:92px;height:56px;border-radius:16px;background:rgba(12,20,48,.35);border:1px solid rgba(120,160,255,.25);color:var(--text);font-size:12px;user-select:none;}
+    .actBtn:active{transform:translateY(1px);border-color:rgba(120,160,255,.55);}
+    @media (pointer:fine){ #mobile{display:none;} }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="hud">
+    <div class="box">
+      <div class="row">
+        <span class="pill"><span class="dot p1"></span><b id="p1Name">P1</b></span>
+        <span class="pill"><span class="dot p2"></span><b id="p2Name">P2</b></span>
+      </div>
+      <div class="sep" style="margin:8px 0;"></div>
+      <div class="row muted">
+        <span>Score: <b id="score">0 : 0</b></span>
+        <span>Time: <b id="time">06:00</b></span>
+      </div>
+    </div>
+    <div class="box">
+      <div class="muted" id="netText">—</div>
+      <div class="muted">ПК: WASD / Shift / Space / C</div>
+    </div>
+  </div>
+
+  <div id="menuOverlay">
+    <div id="menu">
+      <h1>StickBall Online (GitHub Pages)</h1>
+      <div class="small">Клиент хостится на GitHub Pages. Онлайн работает через сервер (SSE+HTTP) на Render/Railway.</div>
+
+      <div class="sep"></div>
+
+      <div class="grid">
+        <div class="full">
+          <div class="small">Server URL (твой деплой сервера)</div>
+          <input id="serverInp" placeholder="https://your-app.onrender.com" />
+          <div class="small">Важно: если страница на <b>https</b>, сервер тоже должен быть <b>https</b>.</div>
+        </div>
+        <div class="full">
+          <div class="small">Your name</div>
+          <input id="nameInp" maxlength="14" placeholder="Player"/>
+        </div>
+        <div class="full">
+          <div class="small">Server key (если включен GAME_KEY)</div>
+          <input id="keyInp" placeholder="1234"/>
+        </div>
+
+        <button id="btnPlay">Play Online</button>
+        <button id="btnDisc" style="display:none;">Disconnect</button>
+      </div>
+
+      <div id="menuStatus"></div>
+      <div class="small">Подсказка: сначала задеплой сервер, потом вставь сюда его URL.</div>
+    </div>
+  </div>
+
+  <div id="mobile">
+    <div id="joy">
+      <div id="joyBase"></div>
+      <div id="joyStick"></div>
+    </div>
+    <div id="actions">
+      <button class="actBtn" id="btnShoot">SHOOT</button>
+      <button class="actBtn" id="btnPass">PASS</button>
+      <button class="actBtn" id="btnSprint">SPRINT</button>
+      <button class="actBtn" id="btnMenu">MENU</button>
+    </div>
+  </div>
+
+  <canvas id="c"></canvas>
+</div>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script>
+(() => {
+  "use strict";
+
+  // ---- DOM
+  const canvas = document.getElementById("c");
+  const hud = document.getElementById("hud");
+  const menuOverlay = document.getElementById("menuOverlay");
+  const menuStatus = document.getElementById("menuStatus");
+  const serverInp = document.getElementById("serverInp");
+  const nameInp = document.getElementById("nameInp");
+  const keyInp = document.getElementById("keyInp");
+  const btnPlay = document.getElementById("btnPlay");
+  const btnDisc = document.getElementById("btnDisc");
+
+  const p1NameEl = document.getElementById("p1Name");
+  const p2NameEl = document.getElementById("p2Name");
+  const scoreEl = document.getElementById("score");
+  const timeEl = document.getElementById("time");
+  const netText = document.getElementById("netText");
+
+  const joy = document.getElementById("joy");
+  const joyStick = document.getElementById("joyStick");
+  const btnShoot = document.getElementById("btnShoot");
+  const btnPass = document.getElementById("btnPass");
+  const btnSprint = document.getElementById("btnSprint");
+  const btnMenu = document.getElementById("btnMenu");
+
+  // ---- Save
+  const LSKEY = "stickball_pages_sse_v1";
+  const saved = JSON.parse(localStorage.getItem(LSKEY) || "{}");
+  serverInp.value = saved.server || "";
+  nameInp.value = saved.name || "Player";
+  keyInp.value = saved.key || "";
+  function save(){
+    localStorage.setItem(LSKEY, JSON.stringify({
+      server: serverInp.value.trim(),
+      name: (nameInp.value.trim().slice(0,14) || "Player"),
+      key: keyInp.value.trim(),
+    }));
+  }
+  [serverInp,nameInp,keyInp].forEach(el => el.addEventListener("input", save));
+
+  // ---- Three.js scene
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+  renderer.setSize(innerWidth, innerHeight);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x070b16);
+
+  const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 220);
+  camera.position.set(0, 26, 28);
+  camera.lookAt(0,0,0);
+
+  scene.add(new THREE.HemisphereLight(0xbfd6ff, 0x0b1020, 1.0));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(10, 18, 12);
+  scene.add(dir);
+
+  addEventListener("resize", () => {
+    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  const FIELD = { w: 40, h: 24 };
+  const GOAL = { halfH: 4.2 };
+
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(FIELD.w+6, FIELD.h+6),
+    new THREE.MeshStandardMaterial({ color: 0x071534, roughness: 0.95 })
+  );
+  ground.rotation.x = -Math.PI/2;
+  scene.add(ground);
+
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x7aa2ff, transparent:true, opacity:0.35 });
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-FIELD.w/2,0.02,-FIELD.h/2), new THREE.Vector3(FIELD.w/2,0.02,-FIELD.h/2),
+    new THREE.Vector3(FIELD.w/2,0.02, FIELD.h/2), new THREE.Vector3(-FIELD.w/2,0.02, FIELD.h/2),
+    new THREE.Vector3(-FIELD.w/2,0.02,-FIELD.h/2),
+  ]), lineMat));
+
+  const goalMat = new THREE.MeshStandardMaterial({ color: 0x9cff8f, transparent:true, opacity:0.25 });
+  const goalDepth = 1.0;
+  const g1 = new THREE.Mesh(new THREE.BoxGeometry(goalDepth, 1.2, GOAL.halfH*2), goalMat);
+  g1.position.set(-FIELD.w/2 - goalDepth/2, 0.6, 0);
+  scene.add(g1);
+  const g2 = new THREE.Mesh(new THREE.BoxGeometry(goalDepth, 1.2, GOAL.halfH*2), goalMat);
+  g2.position.set(FIELD.w/2 + goalDepth/2, 0.6, 0);
+  scene.add(g2);
+
+  const ballMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.35, 18, 18),
+    new THREE.MeshStandardMaterial({ color: 0xfff2b1, roughness:0.4, emissive:0x201a08, emissiveIntensity:0.35 })
+  );
+  scene.add(ballMesh);
+
+  function makeNameSprite(text){
+    const c = document.createElement("canvas");
+    c.width = 256; c.height = 64;
+    const g = c.getContext("2d");
+    g.fillStyle = "rgba(0,0,0,0.55)"; g.fillRect(0,0,256,64);
+    g.font = "bold 28px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillStyle = "#eaf1ff"; g.fillText(text, 128, 32);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent:true }));
+    spr.scale.set(5.8, 1.45, 1);
+    spr.userData.last = text;
+    return spr;
+  }
+  function updateNameSprite(sprite, text){
+    if (sprite.userData.last === text) return;
+    sprite.userData.last = text;
+    const c = document.createElement("canvas");
+    c.width = 256; c.height = 64;
+    const g = c.getContext("2d");
+    g.fillStyle = "rgba(0,0,0,0.55)"; g.fillRect(0,0,256,64);
+    g.font = "bold 28px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillStyle = "#eaf1ff"; g.fillText(text, 128, 32);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    sprite.material.map?.dispose?.();
+    sprite.material.map = tex;
+    sprite.material.needsUpdate = true;
+  }
+
+  function makeStickman(colorHex){
+    const group = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: colorHex, roughness:0.7 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.42,14,14), mat); head.position.set(0,2.05,0); group.add(head);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,1.2,10), mat); body.position.set(0,1.25,0); group.add(body);
+    const armGeo = new THREE.CylinderGeometry(0.10,0.10,1.05,8);
+    const armL = new THREE.Mesh(armGeo, mat); armL.position.set(-0.55,1.35,0); armL.rotation.z=Math.PI/2.8; group.add(armL);
+    const armR = new THREE.Mesh(armGeo, mat); armR.position.set( 0.55,1.35,0); armR.rotation.z=-Math.PI/2.8; group.add(armR);
+    const legGeo = new THREE.CylinderGeometry(0.11,0.11,1.1,8);
+    const legL = new THREE.Mesh(legGeo, mat); legL.position.set(-0.22,0.35,0); legL.rotation.z=Math.PI/16; group.add(legL);
+    const legR = new THREE.Mesh(legGeo, mat); legR.position.set( 0.22,0.35,0); legR.rotation.z=-Math.PI/16; group.add(legR);
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.6,20), new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.35}));
+    shadow.rotation.x = -Math.PI/2; shadow.position.y=0.02; group.add(shadow);
+    return group;
+  }
+
+  const p1Obj = makeStickman(0x54d3ff);
+  const p2Obj = makeStickman(0xff6a6a);
+  scene.add(p1Obj); scene.add(p2Obj);
+  const p1Label = makeNameSprite("P1"); p1Label.position.set(0,3.0,0); p1Obj.add(p1Label);
+  const p2Label = makeNameSprite("P2"); p2Label.position.set(0,3.0,0); p2Obj.add(p2Label);
+
+  // ---- Input (PC + mobile)
+  const keys = new Map();
+  addEventListener("keydown", e => keys.set(e.code, true));
+  addEventListener("keyup", e => keys.set(e.code, false));
+
+  const joyState = { active:false, id:null, cx:0, cy:0, dx:0, dy:0 };
+  function setJoy(dx, dy){ joyState.dx=dx; joyState.dy=dy; const r=44; joyStick.style.transform=`translate(${dx*r}px,${dy*r}px)`; }
+  joy.addEventListener("pointerdown", (e)=>{ joy.setPointerCapture(e.pointerId); joyState.active=true; joyState.id=e.pointerId;
+    const rect=joy.getBoundingClientRect(); joyState.cx=rect.left+rect.width/2; joyState.cy=rect.top+rect.height/2; setJoy(0,0);
+  });
+  joy.addEventListener("pointermove", (e)=>{ if(!joyState.active||joyState.id!==e.pointerId) return;
+    const dx=(e.clientX-joyState.cx)/55, dy=(e.clientY-joyState.cy)/55; const l=Math.hypot(dx,dy)||1; setJoy(l>1?dx/l:dx, l>1?dy/l:dy);
+  });
+  function joyUp(e){ if(joyState.id!==e.pointerId) return; joyState.active=false; joyState.id=null; setJoy(0,0); }
+  joy.addEventListener("pointerup", joyUp); joy.addEventListener("pointercancel", joyUp);
+
+  const mobileHold = { shoot:false, pass:false, sprint:false };
+  function bindHold(btn, key){
+    btn.addEventListener("pointerdown", (e)=>{ e.preventDefault(); mobileHold[key]=true; });
+    btn.addEventListener("pointerup", (e)=>{ e.preventDefault(); mobileHold[key]=false; });
+    btn.addEventListener("pointercancel", ()=>{ mobileHold[key]=false; });
+  }
+  bindHold(btnShoot,"shoot"); bindHold(btnPass,"pass"); bindHold(btnSprint,"sprint");
+  btnMenu.addEventListener("click", ()=>{ disconnect(); showMenu(true); });
+
+  let prevKeys = new Map();
+  function pressedOnce(code){
+    const v=!!keys.get(code), pv=!!prevKeys.get(code);
+    prevKeys.set(code,v);
+    return v && !pv;
+  }
+  let tapLatch = {shoot:false, pass:false};
+  function tapOnceMobile(key){
+    if (mobileHold[key] && !tapLatch[key]) { tapLatch[key]=true; return true; }
+    if (!mobileHold[key]) tapLatch[key]=false;
+    return false;
+  }
+
+  function buildInput(){
+    const mx = (keys.get("KeyD")?1:0)-(keys.get("KeyA")?1:0);
+    const mz = (keys.get("KeyS")?1:0)-(keys.get("KeyW")?1:0);
+    const useJoy = matchMedia("(pointer:coarse)").matches || joyState.active;
+    const moveX = useJoy ? joyState.dx : mx;
+    const moveZ = useJoy ? joyState.dy : mz;
+    return {
+      moveX: clamp(moveX,-1,1),
+      moveZ: clamp(moveZ,-1,1),
+      sprint: !!keys.get("ShiftLeft") || mobileHold.sprint,
+      shoot: pressedOnce("Space") || tapOnceMobile("shoot"),
+      pass:  pressedOnce("KeyC")  || tapOnceMobile("pass"),
+    };
+  }
+
+  // ---- Network (SSE + POST) cross-origin
+  let token=null, role=null, es=null, sendTimer=null;
+
+  const netState = {
+    lastRecv: 0,
+    target: null,
+    players:{ p1:{name:"P1",x:-10,z:0,rot:0}, p2:{name:"P2",x:10,z:0,rot:Math.PI} },
+    ball:{x:0,z:0},
+    score:{p1:0,p2:0},
+    matchLeft: 6*60,
+  };
+
+  function serverBase(){
+    const s = (serverInp.value.trim() || "").replace(/\/+$/,"");
+    return s;
+  }
+
+  async function connect(){
+    save();
+    const base = serverBase();
+    if (!base) { menuStatus.textContent="Укажи Server URL (например https://xxx.onrender.com)"; return; }
+    if (location.protocol === "https:" && !base.startsWith("https://")) {
+      menuStatus.textContent="GitHub Pages работает на https, сервер тоже должен быть https.";
+      return;
+    }
+
+    menuStatus.textContent="Joining…";
+
+    const resp = await fetch(base + "/join", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ name: (nameInp.value.trim().slice(0,14) || "Player"), key: keyInp.value.trim() })
+    });
+
+    const j = await resp.json().catch(()=>null);
+    if (!resp.ok || !j) { menuStatus.textContent="Join error: " + (j?.error || resp.status); return; }
+
+    token = j.token; role = j.role;
+    netText.textContent = `Online • You: ${role}`;
+    menuStatus.textContent = "";
+    btnDisc.style.display="inline-block";
+    showMenu(false);
+
+    if (es) es.close();
+    es = new EventSource(base + "/events?token=" + encodeURIComponent(token));
+
+    es.addEventListener("state", (ev) => {
+      netState.lastRecv = performance.now();
+      netState.target = JSON.parse(ev.data);
+    });
+    es.addEventListener("welcome", (ev) => {
+      const msg = JSON.parse(ev.data);
+      netText.textContent = `Online • You: ${role} • online: ${msg.players.total}`;
+    });
+    es.onerror = () => {
+      netText.textContent = "Disconnected (SSE).";
+    };
+
+    if (sendTimer) clearInterval(sendTimer);
+    sendTimer = setInterval(()=>sendInput(), 50);
+  }
+
+  async function sendInput(){
+    if (!token) return;
+    const base = serverBase();
+    const inp = buildInput();
+    try{
+      await fetch(base + "/input", {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "Authorization":"Bearer " + token
+        },
+        body: JSON.stringify(inp)
+      });
+    } catch {}
+  }
+
+  function disconnect(){
+    token=null; role=null;
+    try{ es?.close?.(); }catch{}
+    es=null;
+    if(sendTimer) clearInterval(sendTimer);
+    sendTimer=null;
+    btnDisc.style.display="none";
+  }
+
+  btnPlay.addEventListener("click", connect);
+  btnDisc.addEventListener("click", ()=>{ disconnect(); showMenu(true); });
+
+  function showMenu(on){
+    menuOverlay.style.display = on ? "flex" : "none";
+    hud.style.display = on ? "none" : "flex";
+  }
+
+  // ---- Render lerp
+  function applyTarget(){
+    const tgt = netState.target;
+    if (!tgt) return;
+
+    const a = 0.35;
+    netState.players.p1.name = tgt.players.p1.name;
+    netState.players.p2.name = tgt.players.p2.name;
+
+    for (const k of ["p1","p2"]){
+      netState.players[k].x = lerp(netState.players[k].x, tgt.players[k].x, a);
+      netState.players[k].z = lerp(netState.players[k].z, tgt.players[k].z, a);
+      netState.players[k].rot = lerpAngle(netState.players[k].rot, tgt.players[k].rot, a);
+    }
+    netState.ball.x = lerp(netState.ball.x, tgt.ball.x, a);
+    netState.ball.z = lerp(netState.ball.z, tgt.ball.z, a);
+    netState.score = tgt.score;
+    netState.matchLeft = tgt.matchLeft;
+
+    const age = Math.min(999, (performance.now()-netState.lastRecv)|0);
+    netText.textContent = `Online • You: ${role||"?"} • net: ${age}ms`;
+  }
+
+  function fmtTime(t){ t=Math.max(0,t|0); const m=Math.floor(t/60), s=t%60; return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"); }
+
+  function updateHUD(){
+    p1NameEl.textContent = netState.players.p1.name;
+    p2NameEl.textContent = netState.players.p2.name;
+    scoreEl.textContent = `${netState.score.p1} : ${netState.score.p2}`;
+    timeEl.textContent = fmtTime(netState.matchLeft);
+  }
+
+  function updateScene(){
+    p1Obj.position.set(netState.players.p1.x,0,netState.players.p1.z);
+    p2Obj.position.set(netState.players.p2.x,0,netState.players.p2.z);
+    p1Obj.rotation.y = netState.players.p1.rot;
+    p2Obj.rotation.y = netState.players.p2.rot;
+
+    updateNameSprite(p1Label, netState.players.p1.name);
+    updateNameSprite(p2Label, netState.players.p2.name);
+
+    ballMesh.position.set(netState.ball.x, 0.35, netState.ball.z);
+
+    const fx = (netState.players.p1.x + netState.players.p2.x + netState.ball.x)/3;
+    const fz = (netState.players.p1.z + netState.players.p2.z + netState.ball.z)/3;
+    camera.position.lerp(new THREE.Vector3(fx,26,fz+28), 0.06);
+    camera.lookAt(new THREE.Vector3(fx,0,fz));
+  }
+
+  // ---- Loop
+  let last = performance.now();
+  function loop(){
+    requestAnimationFrame(loop);
+    const t = performance.now();
+    const dt = Math.min(0.033, (t-last)/1000);
+    last = t;
+
+    applyTarget();
+    updateHUD();
+    updateScene();
+    renderer.render(scene, camera);
+  }
+
+  // ---- Utils
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function lerpAngle(a,b,t){
+    let d = (b-a) % (Math.PI*2);
+    if (d > Math.PI) d -= Math.PI*2;
+    if (d < -Math.PI) d += Math.PI*2;
+    return a + d*t;
+  }
+
+  showMenu(true);
+  loop();
+})();
+</script>
+</body>
+        </html>
