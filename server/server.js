@@ -1,3 +1,14 @@
+const path = require("path");
+const express = require("express");
+const app = express();
+
+// ДО твоих /join /events /input:
+app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
+
+// На всякий случай (не обязательно, но полезно):
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 // server/server.js
 // SSE + HTTP input. Works with GitHub Pages client (cross-origin) via CORS.
 // Run locally:
